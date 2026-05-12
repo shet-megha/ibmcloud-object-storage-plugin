@@ -3,19 +3,77 @@ name: IBM Cloud Object Storage Plugin
 on:
   push:
     branches:
-      - master
+      - flex-2-csi-migration
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
+    paths:
+      - ".github/workflows/pipeline.yaml"
+      - "flex-2-csi-migration-tool/**"
   pull_request:
     branches:
-      - master
+      - flex-2-csi-migration
+    paths:
+      - ".github/workflows/pipeline.yaml"
+      - "flex-2-csi-migration-tool/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
+  common-setup:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check_release.outputs.should_release }}
+      app_version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          
+      - name: Print Go Version
+        run: go version
+
+      - name: Get last commit message
+        id: check_commit
+        run: |
+          message=$(git log -1 --pretty=%B)
+          message="${message//'%'/'%25'}"  # Escape '%'
+          message="${message//$'\n'/'%0A'}"  # Escape newlines
+          message="${message//$'\r'/'%0D'}"  # Escape carriage returns
+          echo "message=$message" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Check Commit Message
+        run: |
+          echo "Commit Message: ${{ steps.check_commit.outputs.message }}"
+      
+      - name: Check if release should be triggered
+        id: check_release
+        run: |
+          if [[ "${{ steps.check_commit.outputs.message }}" == *"publish"* ]] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "Release packages will be created"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Release packages will not be created"
+          fi
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="v1.0.0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
   build-and-test:
+    needs: common-setup
     runs-on: ubuntu-latest
     permissions:
       contents: write        # needed to push to gh-pages
@@ -23,8 +81,8 @@ jobs:
 
     strategy:
       matrix:
-        go-version: ["1.25.9", "stable"]   
-      fail-fast: false                    
+        go-version: ["1.25.9", "stable"]
+      fail-fast: false
 
     steps:
       - name: Checkout code
@@ -44,25 +102,42 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y bc docker-ce-cli
 
-      - name: Make scripts executable
+      - name: Make root scripts executable
         run: chmod +x scripts/*.sh
 
-      - name: Prepare environment
+      - name: Prepare root project environment
         run: |
           export GO111MODULE=on
           go mod tidy
           make deps
 
-      - name: Check code formatting
-        run: make fmt
+      - name: Check root project code formatting
+        run: |
+          root_go_files=$(find . -path './vendor' -prune -o -path './flex-2-csi-migration-tool' -prune -o -name '*.go' -print)
+          unformatted=$(gofmt -l $root_go_files)
+          if [ -n "$unformatted" ]; then
+            echo "Error: The following root project files need formatting:"
+            echo "$unformatted"
+            exit 1
+          fi
 
-      - name: Run unit tests
+      - name: Check flex-2-csi migration tool formatting
+        run: |
+          tool_go_files=$(find flex-2-csi-migration-tool -name '*.go' -print)
+          unformatted=$(gofmt -l $tool_go_files)
+          if [ -n "$unformatted" ]; then
+            echo "Error: The following flex-2-csi migration tool files need formatting:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run root project unit tests
         run: make test
 
-      - name: Generate coverage
+      - name: Generate root project coverage
         run: |
           make coverage
-          ./scripts/calculateCoverage.sh       
+          ./scripts/calculateCoverage.sh
           touch "Passing" || touch "Failed"
 
       - name: Build driver & provisioner image
@@ -70,9 +145,194 @@ jobs:
           make driver
           make provisioner
 
+      - name: Prepare flex-2-csi migration tool
+        working-directory: flex-2-csi-migration-tool
+        run: |
+          go mod tidy
+
+      - name: Build flex-2-csi migration tool (all platforms)
+        working-directory: flex-2-csi-migration-tool
+        run: |
+          make dist
+
+      - name: Upload flex-2-csi migration tool artifacts
+        if: matrix.go-version == 'stable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubectl-flex-to-csi-all-platforms
+          path: |
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-linux.tar.gz
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-macos.zip
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-windows.zip
+          if-no-files-found: error
+
+      - name: Display download links
+        if: matrix.go-version == 'stable'
+        run: |
+          echo "=========================================="
+          echo "Build completed successfully!"
+          echo "=========================================="
+          echo ""
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            echo "📦 Release created: $TAG_NAME"
+            echo ""
+            echo "🔗 Download URLs:"
+            echo ""
+            echo "Linux (tar.gz):"
+            echo "  https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/kubectl-flex-to-csi-linux.tar.gz"
+            echo ""
+            echo "macOS (zip):"
+            echo "  https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/kubectl-flex-to-csi-macos.zip"
+            echo ""
+            echo "Windows (zip):"
+            echo "  https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/kubectl-flex-to-csi-windows.zip"
+            echo ""
+            echo "🌐 Release page:"
+            echo "  https://github.com/${{ github.repository }}/releases/tag/${TAG_NAME}"
+          else
+            echo "📦 Artifact uploaded: kubectl-flex-to-csi-all-platforms"
+            echo ""
+            echo "🔗 Download from:"
+            echo "  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo "Includes: Linux (tar.gz), macOS (zip), Windows (zip)"
+            echo "Note: Artifacts are available for 90 days"
+          fi
+          echo "=========================================="
+
+
+
       - name: Publish coverage
         if: success() && matrix.go-version == 'stable'
+        continue-on-error: true
         env:
-          GHE_TOKEN: ${{ secrets.GHE_TOKEN }}
+          GHE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./scripts/publishCoverage.sh          
+          ./scripts/publishCoverage.sh
+
+  release:
+    needs: [common-setup, build-and-test]
+    if: needs.common-setup.outputs.should_release == 'true'
+    permissions: write-all
+    runs-on: ubuntu-latest
+
+    env:
+      APP_VERSION: ${{ needs.common-setup.outputs.app_version }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+          cache: true
+
+      - name: Prepare flex-2-csi migration tool
+        working-directory: flex-2-csi-migration-tool
+        run: |
+          go mod tidy
+
+      - name: Build flex-2-csi migration tool (all platforms)
+        working-directory: flex-2-csi-migration-tool
+        run: |
+          make dist
+
+      - name: Generate SHA256 checksums
+        working-directory: flex-2-csi-migration-tool/dist
+        run: |
+          sha256sum kubectl-flex-to-csi-linux.tar.gz > kubectl-flex-to-csi-linux.tar.gz.sha256
+          sha256sum kubectl-flex-to-csi-macos.zip > kubectl-flex-to-csi-macos.zip.sha256
+          sha256sum kubectl-flex-to-csi-windows.zip > kubectl-flex-to-csi-windows.zip.sha256
+
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-linux.tar.gz
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-linux.tar.gz.sha256
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-macos.zip
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-macos.zip.sha256
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-windows.zip
+            flex-2-csi-migration-tool/dist/kubectl-flex-to-csi-windows.zip.sha256
+          tag_name: ${{ env.APP_VERSION }}
+          name: ${{ env.APP_VERSION }}
+          body: |
+            ## 🚀 IBM Cloud Object Storage Plugin - Flex to CSI Migration Tool
+            
+            ### 📦 What's Included
+            - **Linux** (tar.gz): kubectl-flex-to-csi-linux.tar.gz
+            - **macOS** (zip): kubectl-flex-to-csi-macos.zip - Universal binary (Intel + Apple Silicon)
+            - **Windows** (zip): kubectl-flex-to-csi-windows.zip
+            
+            ### 📥 Installation
+            
+            #### Linux
+            ```bash
+            tar -xzf kubectl-flex-to-csi-linux.tar.gz
+            cd kubectl-flex-to-csi-linux
+            chmod +x kubectl-flex-to-csi
+            ./kubectl-flex-to-csi --help
+            ```
+            
+            #### macOS
+            ⚠️ **Important**: macOS may block the binary due to security settings.
+            
+            ```bash
+            unzip kubectl-flex-to-csi-macos.zip
+            cd kubectl-flex-to-csi-macos
+            ./INSTALL.sh  # This removes the quarantine attribute
+            ./kubectl-flex-to-csi --help
+            ```
+            
+            **See `MACOS_INSTALL.md` in the package for detailed instructions.**
+            
+            #### Windows
+            ```powershell
+            # Extract kubectl-flex-to-csi-windows.zip
+            .\kubectl-flex-to-csi.exe --help
+            ```
+            
+            ### 🔐 Security & Verification
+            - SHA256 checksums are provided for all packages
+            - macOS package includes `INSTALL.sh` script to bypass Gatekeeper
+            - All binaries are built from source in GitHub Actions
+            
+            ### 📖 Documentation
+            - [Main README](https://github.com/balraj111/ibmcloud-object-storage-plugin/blob/flex-2-csi-migration/flex-2-csi-migration-tool/README.md)
+            - [macOS Installation Guide](https://github.com/balraj111/ibmcloud-object-storage-plugin/blob/flex-2-csi-migration/flex-2-csi-migration-tool/MACOS_INSTALL.md)
+            - [Release Notes](https://github.com/balraj111/ibmcloud-object-storage-plugin/blob/flex-2-csi-migration/flex-2-csi-migration-tool/RELEASE.md)
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Display Release Information
+        run: |
+          echo "=========================================="
+          echo "🎉 Release created successfully!"
+          echo "=========================================="
+          echo ""
+          echo "📦 Release: ${{ env.APP_VERSION }}"
+          echo ""
+          echo "🔗 Download URLs:"
+          echo ""
+          echo "Linux (tar.gz):"
+          echo "  https://github.com/${{ github.repository }}/releases/download/${{ env.APP_VERSION }}/kubectl-flex-to-csi-linux.tar.gz"
+          echo ""
+          echo "macOS (zip):"
+          echo "  https://github.com/${{ github.repository }}/releases/download/${{ env.APP_VERSION }}/kubectl-flex-to-csi-macos.zip"
+          echo ""
+          echo "Windows (zip):"
+          echo "  https://github.com/${{ github.repository }}/releases/download/${{ env.APP_VERSION }}/kubectl-flex-to-csi-windows.zip"
+          echo ""
+          echo "🌐 Release page:"
+          echo "  https://github.com/${{ github.repository }}/releases/tag/${{ env.APP_VERSION }}"
+          echo "=========================================="
