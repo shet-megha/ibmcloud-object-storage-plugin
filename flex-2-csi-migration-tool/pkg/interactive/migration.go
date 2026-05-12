@@ -27,8 +27,66 @@ func (a *App) startMigration() {
 		return
 	}
 
-	fmt.Printf("\n📊 Found %d pending resource(s) to migrate:\n", len(pendingResources))
-	pendingResourceInfos := a.getResourceInfosFromStatuses(pendingResources)
+	// Step 1: Get namespaces with flex resources that are not migrated
+	fmt.Println("\n🔍 Discovering namespaces with Flex resources...")
+	namespacesWithPending := a.getNamespacesWithPendingResources(pendingResources)
+	
+	if len(namespacesWithPending) == 0 {
+		fmt.Println("\n⚠️  No namespaces with pending Flex resources found.")
+		a.pause()
+		return
+	}
+
+	// Step 2: Display namespaces and let user select
+	fmt.Printf("\n📋 Found %d namespace(s) with pending Flex resources:\n\n", len(namespacesWithPending))
+	for i, ns := range namespacesWithPending {
+		resourceCount := a.countResourcesInNamespace(pendingResources, ns)
+		fmt.Printf("  %d. %s (%d resource(s))\n", i+1, ns, resourceCount)
+	}
+	
+	fmt.Println("\nOptions:")
+	fmt.Println("  • Enter namespace number (1-" + fmt.Sprintf("%d", len(namespacesWithPending)) + ") to view resources")
+	fmt.Println("  • Enter 'all' to view all resources across namespaces")
+	fmt.Println("  • Enter 'q' to cancel")
+	fmt.Print("\nYour choice: ")
+
+	choice := a.readInput()
+	
+	if strings.ToLower(choice) == "q" {
+		fmt.Println("\n❌ Migration cancelled")
+		a.pause()
+		return
+	}
+
+	var selectedNamespace string
+	var filteredResources []ResourceStatus
+
+	if strings.ToLower(choice) == "all" {
+		// Show all pending resources
+		selectedNamespace = "all"
+		filteredResources = pendingResources
+	} else {
+		// Parse namespace selection
+		var nsIdx int
+		_, err := fmt.Sscanf(choice, "%d", &nsIdx)
+		if err != nil || nsIdx < 1 || nsIdx > len(namespacesWithPending) {
+			fmt.Printf("\n❌ Invalid selection. Please enter 1-%d, 'all', or 'q'\n", len(namespacesWithPending))
+			a.pause()
+			return
+		}
+		
+		selectedNamespace = namespacesWithPending[nsIdx-1]
+		filteredResources = a.filterResourcesByNamespace(pendingResources, selectedNamespace)
+	}
+
+	// Step 3: Display resources in selected namespace
+	if selectedNamespace == "all" {
+		fmt.Printf("\n📊 Found %d pending resource(s) across all namespaces:\n", len(filteredResources))
+	} else {
+		fmt.Printf("\n📊 Found %d pending resource(s) in namespace '%s':\n", len(filteredResources), selectedNamespace)
+	}
+	
+	pendingResourceInfos := a.getResourceInfosFromStatuses(filteredResources)
 
 	orphanedCount := 0
 	pendingPVCCount := 0
@@ -82,13 +140,13 @@ func (a *App) startMigration() {
 	fmt.Println("  3. Cancel")
 	fmt.Print("\nSelect option (1-3): ")
 
-	choice := a.readInput()
+	choice = a.readInput()
 
 	switch choice {
 	case "1":
-		a.migrateAll(pendingResources)
+		a.migrateAll(filteredResources)
 	case "2":
-		a.migrateSelected(pendingResources)
+		a.migrateSelected(filteredResources)
 	case "3":
 		fmt.Println("\n❌ Migration cancelled")
 		a.pause()
@@ -482,4 +540,44 @@ func (a *App) cleanupOld() {
 	a.pause()
 }
 
+
+// getNamespacesWithPendingResources returns a list of unique namespaces that have pending resources
+func (a *App) getNamespacesWithPendingResources(resources []ResourceStatus) []string {
+	namespacesMap := make(map[string]bool)
+	
+	for _, res := range resources {
+		if res.Namespace != "" {
+			namespacesMap[res.Namespace] = true
+		}
+	}
+	
+	namespaces := make([]string, 0, len(namespacesMap))
+	for ns := range namespacesMap {
+		namespaces = append(namespaces, ns)
+	}
+	
+	return namespaces
+}
+
+// countResourcesInNamespace counts how many resources are in a specific namespace
+func (a *App) countResourcesInNamespace(resources []ResourceStatus, namespace string) int {
+	count := 0
+	for _, res := range resources {
+		if res.Namespace == namespace {
+			count++
+		}
+	}
+	return count
+}
+
+// filterResourcesByNamespace filters resources to only those in the specified namespace
+func (a *App) filterResourcesByNamespace(resources []ResourceStatus, namespace string) []ResourceStatus {
+	filtered := []ResourceStatus{}
+	for _, res := range resources {
+		if res.Namespace == namespace {
+			filtered = append(filtered, res)
+		}
+	}
+	return filtered
+}
 // Made with Bob
