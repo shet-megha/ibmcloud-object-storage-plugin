@@ -3,7 +3,7 @@ name: IBM Cloud Object Storage Plugin
 on:
   push:
     branches:
-      - flex-2-csi-migration
+      - flex-to-csi-migration
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
     paths:
@@ -11,7 +11,7 @@ on:
       - "flex-2-csi-migration-tool/**"
   pull_request:
     branches:
-      - flex-2-csi-migration
+      - flex-to-csi-migration
     paths:
       - ".github/workflows/pipeline.yaml"
       - "flex-2-csi-migration-tool/**"
