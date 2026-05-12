@@ -1,0 +1,13 @@
+logs/
+output/
+dist/
+coverage.out
+coverage.html
+/kubectl-flex-to-csi
+*.exe
+*.tar.gz
+*.zip
+.DS_Store
+/kubeconfig
+/kubeconfig-portable
+.backup/

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .PVCName }}
+  namespace: {{ .Namespace }}
+  annotations:
+    cos.csi.driver/secret: "{{ .SecretName }}"
+    ibm.io/auto-create-bucket: "{{ .AutoCreateBucket }}"
+    ibm.io/auto-delete-bucket: "{{ .AutoDeleteBucket }}"
+    ibm.io/bucket: "{{ .BucketName }}"
+    ibm.io/endpoint: "{{ .Endpoint }}"
+    ibm.io/region: "{{ .Region }}"
+    ibm.io/object-path: "{{ .ObjectPath }}"
+    ibm.io/chunk-size-mb: "{{ .ChunkSizeMB }}"
+    ibm.io/parallel-count: "{{ .ParallelCount }}"
+    ibm.io/multireq-max: "{{ .MultireqMax }}"
+    ibm.io/stat-cache-size: "{{ .StatCacheSize }}"
+    ibm.io/kernel-cache: "{{ .KernelCache }}"
+spec:
+  accessModes:
+{{ .AccessModes }}
+  resources:
+    requests:
+      storage: {{ .Storage }}
+  storageClassName: {{ .StorageClass }}
+  volumeMode: Filesystem
