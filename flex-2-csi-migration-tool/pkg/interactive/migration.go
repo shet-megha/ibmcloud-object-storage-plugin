@@ -30,7 +30,7 @@ func (a *App) startMigration() {
 	// Step 1: Get namespaces with flex resources that are not migrated
 	fmt.Println("\n🔍 Discovering namespaces with Flex resources...")
 	namespacesWithPending := a.getNamespacesWithPendingResources(pendingResources)
-	
+
 	if len(namespacesWithPending) == 0 {
 		fmt.Println("\n⚠️  No namespaces with pending Flex resources found.")
 		a.pause()
@@ -43,7 +43,7 @@ func (a *App) startMigration() {
 		resourceCount := a.countResourcesInNamespace(pendingResources, ns)
 		fmt.Printf("  %d. %s (%d resource(s))\n", i+1, ns, resourceCount)
 	}
-	
+
 	fmt.Println("\nOptions:")
 	fmt.Println("  • Enter namespace number (1-" + fmt.Sprintf("%d", len(namespacesWithPending)) + ") to view resources")
 	fmt.Println("  • Enter 'all' to view all resources across namespaces")
@@ -51,7 +51,7 @@ func (a *App) startMigration() {
 	fmt.Print("\nYour choice: ")
 
 	choice := a.readInput()
-	
+
 	if strings.ToLower(choice) == "q" {
 		fmt.Println("\n❌ Migration cancelled")
 		a.pause()
@@ -74,7 +74,7 @@ func (a *App) startMigration() {
 			a.pause()
 			return
 		}
-		
+
 		selectedNamespace = namespacesWithPending[nsIdx-1]
 		filteredResources = a.filterResourcesByNamespace(pendingResources, selectedNamespace)
 	}
@@ -85,7 +85,7 @@ func (a *App) startMigration() {
 	} else {
 		fmt.Printf("\n📊 Found %d pending resource(s) in namespace '%s':\n", len(filteredResources), selectedNamespace)
 	}
-	
+
 	pendingResourceInfos := a.getResourceInfosFromStatuses(filteredResources)
 
 	orphanedCount := 0
@@ -540,22 +540,21 @@ func (a *App) cleanupOld() {
 	a.pause()
 }
 
-
 // getNamespacesWithPendingResources returns a list of unique namespaces that have pending resources
 func (a *App) getNamespacesWithPendingResources(resources []ResourceStatus) []string {
 	namespacesMap := make(map[string]bool)
-	
+
 	for _, res := range resources {
 		if res.Namespace != "" {
 			namespacesMap[res.Namespace] = true
 		}
 	}
-	
+
 	namespaces := make([]string, 0, len(namespacesMap))
 	for ns := range namespacesMap {
 		namespaces = append(namespaces, ns)
 	}
-	
+
 	return namespaces
 }
 
@@ -580,4 +579,5 @@ func (a *App) filterResourcesByNamespace(resources []ResourceStatus, namespace s
 	}
 	return filtered
 }
+
 // Made with Bob
