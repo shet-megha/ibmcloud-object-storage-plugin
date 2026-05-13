@@ -6,7 +6,9 @@ import (
 
 	"kubectl-flex-to-csi/pkg/cli"
 	"kubectl-flex-to-csi/pkg/interactive"
+	"kubectl-flex-to-csi/pkg/upgrade"
 	"kubectl-flex-to-csi/pkg/verify"
+	"kubectl-flex-to-csi/version"
 )
 
 func main() {
@@ -53,6 +55,12 @@ func main() {
 	case "verify":
 		verify.Run(os.Args[2:])
 
+	case "upgrade", "self-upgrade":
+		if err := upgrade.Run(); err != nil {
+			fmt.Printf("❌ Upgrade failed: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "version", "-v", "--version":
 		showVersion()
 
@@ -79,6 +87,7 @@ func showUsage() {
 	fmt.Println("  migrate-one       🎯 Migrate one resource at a time (interactive)")
 	fmt.Println("  verify            ✅ Verify migrated resources")
 	fmt.Println("  cleanup           🗑️  Cleanup old resources")
+	fmt.Println("  upgrade           🔄 Upgrade to latest version")
 	fmt.Println("  version           📌 Show version information")
 	fmt.Println("  help              ❓ Show this help message")
 	fmt.Println()
@@ -108,8 +117,11 @@ func showUsage() {
 }
 
 func showVersion() {
-	fmt.Println("kubectl-flex-to-csi version 2.0")
-	fmt.Println("IBM Cloud Object Storage FlexVolume to CSI Migration Tool")
+	fmt.Println("╔════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  IBM Cloud Object Storage FlexVolume to CSI Migration     ║")
+	fmt.Println("╚════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Printf("Version: %s\n", version.GetFullVersion())
 	fmt.Println()
 	fmt.Println("Features:")
 	fmt.Println("  • User-friendly interactive CLI")
@@ -117,5 +129,6 @@ func showVersion() {
 	fmt.Println("  • Automated resource discovery")
 	fmt.Println("  • Safe migration with verification")
 	fmt.Println("  • Status tracking and reporting")
+	fmt.Println("  • Self-upgrade capability")
 	fmt.Println()
 }

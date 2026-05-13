@@ -1,5 +1,15 @@
 .PHONY: help tidy build verify test test-coverage test-verbose clean install lint fmt vet clean-cache
 
+# Version information
+VERSION ?= dev
+GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u +%Y-%m-%d)
+
+# Build flags for embedding version info
+LDFLAGS := -X kubectl-flex-to-csi/version.Version=$(VERSION) \
+           -X kubectl-flex-to-csi/version.GitCommit=$(GIT_COMMIT) \
+           -X kubectl-flex-to-csi/version.BuildDate=$(BUILD_DATE)
+
 # Default target
 help:
 	@echo "Available targets:"
@@ -29,9 +39,9 @@ tidy:
 
 # Build the binary
 build:
-	@echo "Building kubectl-flex-to-csi..."
-	go build -o kubectl-flex-to-csi ./cmd/kubectl-flex-to-csi/main.go
-	@echo "✅ Build complete"
+	@echo "Building kubectl-flex-to-csi with version $(VERSION)..."
+	go build -ldflags "$(LDFLAGS)" -o kubectl-flex-to-csi ./cmd/kubectl-flex-to-csi/main.go
+	@echo "✅ Build complete (version: $(VERSION))"
 
 # Verify module state and full package build
 verify:
@@ -116,9 +126,9 @@ dist: dist-mac dist-windows dist-linux
 # Create macOS distribution
 dist-mac:
 	@echo "Creating macOS distribution package..."
-	@echo "Building macOS binary with optimized flags..."
-	@GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o kubectl-flex-to-csi-amd64 ./cmd/kubectl-flex-to-csi/main.go
-	@GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o kubectl-flex-to-csi-arm64 ./cmd/kubectl-flex-to-csi/main.go
+	@echo "Building macOS binary with version $(VERSION)..."
+	@GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w $(LDFLAGS)" -o kubectl-flex-to-csi-amd64 ./cmd/kubectl-flex-to-csi/main.go
+	@GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w $(LDFLAGS)" -o kubectl-flex-to-csi-arm64 ./cmd/kubectl-flex-to-csi/main.go
 	@echo "Creating universal binary..."
 	@lipo -create -output kubectl-flex-to-csi kubectl-flex-to-csi-amd64 kubectl-flex-to-csi-arm64 || cp kubectl-flex-to-csi-amd64 kubectl-flex-to-csi
 	@rm -f kubectl-flex-to-csi-amd64 kubectl-flex-to-csi-arm64
@@ -146,8 +156,8 @@ dist-mac:
 # Create Windows distribution
 dist-windows:
 	@echo "Creating Windows distribution package..."
-	@echo "Building Windows binary..."
-	@GOOS=windows GOARCH=amd64 go build -o kubectl-flex-to-csi.exe ./cmd/kubectl-flex-to-csi/main.go
+	@echo "Building Windows binary with version $(VERSION)..."
+	@GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o kubectl-flex-to-csi.exe ./cmd/kubectl-flex-to-csi/main.go
 	@rm -rf dist/kubectl-flex-to-csi-windows
 	@mkdir -p dist/kubectl-flex-to-csi-windows/kubeconfig
 	@cp kubectl-flex-to-csi.exe dist/kubectl-flex-to-csi-windows/
@@ -161,8 +171,8 @@ dist-windows:
 # Create Linux distribution
 dist-linux:
 	@echo "Creating Linux distribution package..."
-	@echo "Building Linux binary..."
-	@GOOS=linux GOARCH=amd64 go build -o kubectl-flex-to-csi-linux ./cmd/kubectl-flex-to-csi/main.go
+	@echo "Building Linux binary with version $(VERSION)..."
+	@GOOS=linux GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o kubectl-flex-to-csi-linux ./cmd/kubectl-flex-to-csi/main.go
 	@rm -rf dist/kubectl-flex-to-csi-linux
 	@mkdir -p dist/kubectl-flex-to-csi-linux/kubeconfig
 	@cp kubectl-flex-to-csi-linux dist/kubectl-flex-to-csi-linux/kubectl-flex-to-csi
