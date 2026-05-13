@@ -79,80 +79,109 @@ func (a *App) startMigration() {
 		filteredResources = a.filterResourcesByNamespace(pendingResources, selectedNamespace)
 	}
 
-	// Step 3: Display resources in selected namespace
+	// Step 3: Filter and display only migrable resources in selected namespace
 	if selectedNamespace == "all" {
-		fmt.Printf("\n📊 Found %d pending resource(s) across all namespaces:\n", len(filteredResources))
+		fmt.Printf("\n📊 Analyzing %d pending resource(s) across all namespaces...\n", len(filteredResources))
 	} else {
-		fmt.Printf("\n📊 Found %d pending resource(s) in namespace '%s':\n", len(filteredResources), selectedNamespace)
+		fmt.Printf("\n📊 Analyzing %d pending resource(s) in namespace '%s'...\n", len(filteredResources), selectedNamespace)
 	}
 
 	pendingResourceInfos := a.getResourceInfosFromStatuses(filteredResources)
 
+	// Filter to get only migrable resources
+	migrableResources := []ResourceStatus{}
+	migrableResourceInfos := []discovery.ResourceInfo{}
 	orphanedCount := 0
 	pendingPVCCount := 0
-	migrableCount := 0
-	pendingPVCResources := []string{}
 
-	for _, res := range pendingResourceInfos {
-		if res.Name == "" || res.Type == "" {
+	for i, resInfo := range pendingResourceInfos {
+		// Skip orphaned PVCs (no workload)
+		if resInfo.Name == "" || resInfo.Type == "" {
 			orphanedCount++
-		} else {
-			hasPendingPVC := false
-			for _, pvc := range res.PVCs {
-				if pvc.Status == "Pending" || strings.Contains(pvc.Status, "Pending") {
-					hasPendingPVC = true
-					pendingPVCCount++
-					pendingPVCResources = append(pendingPVCResources, fmt.Sprintf("%s (%s)", res.Name, res.Type))
-					break
-				}
+			continue
+		}
+
+		// Skip resources with Pending PVCs
+		hasPendingPVC := false
+		for _, pvc := range resInfo.PVCs {
+			if pvc.Status == "Pending" || strings.Contains(pvc.Status, "Pending") {
+				hasPendingPVC = true
+				pendingPVCCount++
+				break
 			}
-			if !hasPendingPVC {
-				migrableCount++
-			}
+		}
+
+		if !hasPendingPVC {
+			migrableResources = append(migrableResources, filteredResources[i])
+			migrableResourceInfos = append(migrableResourceInfos, resInfo)
 		}
 	}
 
-	a.printResourceInfoTable(pendingResourceInfos)
-
-	if orphanedCount > 0 {
-		fmt.Printf("\n⚠️  Warning: %d orphaned PVC(s) detected (PVC exists but no workload)\n", orphanedCount)
-		fmt.Println("   Migration not supported for orphaned PVCs.")
-	}
-
-	if pendingPVCCount > 0 {
-		fmt.Printf("\n⚠️  Warning: %d resource(s) with PVC in Pending state:\n", pendingPVCCount)
-		for _, resName := range pendingPVCResources {
-			fmt.Printf("   - %s\n", resName)
+	// Check if there are any migrable resources
+	if len(migrableResources) == 0 {
+		fmt.Println("\n❌ No migrable resources found in this selection.")
+		if orphanedCount > 0 {
+			fmt.Printf("   • %d orphaned PVC(s) detected (no workload attached)\n", orphanedCount)
 		}
-		fmt.Println("   Migration not supported for resources with Pending PVCs.")
-	}
-
-	if migrableCount == 0 {
-		fmt.Println("\n❌ No migrable resources found.")
-		fmt.Println("   All pending resources are orphaned PVCs without workloads.")
+		if pendingPVCCount > 0 {
+			fmt.Printf("   • %d resource(s) with PVC in Pending state\n", pendingPVCCount)
+		}
+		fmt.Println("\n   Migration is not supported for these resources.")
 		a.pause()
 		return
 	}
 
-	fmt.Println("\n⚠️  Migration Options:")
-	fmt.Println("  1. Migrate all pending resources")
-	fmt.Println("  2. Select specific resources")
-	fmt.Println("  3. Cancel")
-	fmt.Print("\nSelect option (1-3): ")
+	// Display migrable resources with numbers
+	fmt.Printf("\n✅ Found %d migrable resource(s):\n\n", len(migrableResources))
+	for i, resInfo := range migrableResourceInfos {
+		fmt.Printf("  %d. %s/%s (%s)\n", i+1, resInfo.Namespace, resInfo.Name, resInfo.Type)
+		for _, pvc := range resInfo.PVCs {
+			fmt.Printf("      └─ PVC: %s (Status: %s)\n", pvc.Name, pvc.Status)
+		}
+	}
+
+	// Show warnings if any resources were excluded
+	if orphanedCount > 0 || pendingPVCCount > 0 {
+		fmt.Println("\n⚠️  Note: Some resources were excluded from migration:")
+		if orphanedCount > 0 {
+			fmt.Printf("   • %d orphaned PVC(s) (no workload attached)\n", orphanedCount)
+		}
+		if pendingPVCCount > 0 {
+			fmt.Printf("   • %d resource(s) with PVC in Pending state\n", pendingPVCCount)
+		}
+	}
+
+	// Prompt user to select a resource
+	fmt.Println("\n📝 Migration Options:")
+	fmt.Printf("  • Enter resource number (1-%d) to migrate that resource\n", len(migrableResources))
+	fmt.Println("  • Enter 'all' to migrate all resources shown above")
+	fmt.Println("  • Enter 'q' to cancel")
+	fmt.Print("\nYour choice: ")
 
 	choice = a.readInput()
 
-	switch choice {
-	case "1":
-		a.migrateAll(filteredResources)
-	case "2":
-		a.migrateSelected(filteredResources)
-	case "3":
+	if strings.ToLower(choice) == "q" {
 		fmt.Println("\n❌ Migration cancelled")
 		a.pause()
-	default:
-		fmt.Println("\n❌ Invalid option")
-		a.pause()
+		return
+	}
+
+	if strings.ToLower(choice) == "all" {
+		// Migrate all migrable resources
+		a.migrateAll(migrableResources)
+	} else {
+		// Parse resource number selection
+		var resIdx int
+		_, err := fmt.Sscanf(choice, "%d", &resIdx)
+		if err != nil || resIdx < 1 || resIdx > len(migrableResources) {
+			fmt.Printf("\n❌ Invalid selection. Please enter 1-%d, 'all', or 'q'\n", len(migrableResources))
+			a.pause()
+			return
+		}
+
+		// Migrate the selected resource
+		selectedRes := migrableResources[resIdx-1]
+		a.migrateSingleResource(selectedRes)
 	}
 }
 
