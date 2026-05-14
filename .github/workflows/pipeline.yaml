@@ -241,7 +241,7 @@ jobs:
       - name: Build flex-2-csi migration tool (all platforms)
         working-directory: flex-2-csi-migration-tool
         run: |
-          make dist
+          make dist VERSION=${{ env.APP_VERSION }}
 
       - name: Generate SHA256 checksums
         working-directory: flex-2-csi-migration-tool/dist
