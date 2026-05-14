@@ -8,18 +8,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
-// ExtractArchive extracts a tar.gz or zip archive based on the OS
+// ExtractArchive extracts a tar.gz or zip archive based on file extension
 func ExtractArchive(archivePath, destDir string) (string, error) {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create dest dir: %w", err)
 	}
 
-	if runtime.GOOS == "windows" {
+	// Determine archive type by file extension
+	ext := filepath.Ext(archivePath)
+	if ext == ".zip" {
 		return extractZip(archivePath, destDir)
 	}
+	// Assume tar.gz for .gz extension or any other
 	return extractTarGz(archivePath, destDir)
 }
 
